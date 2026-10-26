@@ -1,23 +1,18 @@
-
 # Recoverable SaaS Decommission
 
 **Practical tools and operational guidance for decommissioning SaaS applications without losing the ability to restore them.**
 
 Decommissioning an application involves more than shutting down servers, deleting databases and cancelling hosting subscriptions.
 
-Before infrastructure is removed, an operator needs evidence that the application and its data have been preserved, that the backups are accessible independently of the original infrastructure, and that recovery procedures are technically viable.
+Before infrastructure is removed, an operator needs evidence that the application and its data have been preserved, that backups are accessible independently of the original infrastructure, and that recovery procedures are technically viable.
 
 **A successful backup is not proof of recoverability. A successful restore test is.**
 
-`recoverable-saas-decommission` is an open-source project focused on making that distinction practical.
-
-It combines an operational decommissioning workflow, reusable documentation and Docker-based MySQL restore-verification tooling.
+`recoverable-saas-decommission` is an open-source project focused on making that distinction practical. It combines an operational decommissioning workflow, reusable guidance and a Docker-based MySQL restore verifier.
 
 ## Why This Project Exists
 
-It is relatively straightforward to create a database dump, compress an application directory and copy the resulting archives somewhere safe.
-
-The more difficult questions come afterwards:
+It is relatively straightforward to create a database dump, compress an application directory and copy the resulting archives somewhere safe. The more difficult questions come afterwards:
 
 - Can the database dump actually be imported?
 - Does the restored database contain the expected schema?
@@ -27,9 +22,7 @@ The more difficult questions come afterwards:
 - Are encryption keys and recovery credentials retained securely?
 - Is there sufficient recovery evidence to justify deleting the infrastructure?
 
-A backup may exist and still be unusable, incomplete or dependent on the very infrastructure being decommissioned.
-
-This project provides a structured way to reduce those risks.
+A backup may exist and still be unusable, incomplete or dependent on the infrastructure being decommissioned. This project provides a structured way to reduce those risks.
 
 ## The Decommissioning Workflow
 
@@ -63,61 +56,104 @@ Document Recovery
 Decommission
 ```
 
-Each stage should produce evidence that supports the decision to proceed to the next.
-
-In particular, production infrastructure should not be permanently removed simply because a backup command completed successfully.
+Each stage should produce evidence that supports the decision to proceed to the next. In particular, production infrastructure should not be permanently removed simply because a backup command completed successfully.
 
 ## MySQL Restore Verification
 
-The project's first executable capability is a Docker-based MySQL restore verifier.
+The repository includes `mysql/verify-restore.sh`, a Bash-based verifier that uses a disposable MySQL 8.0 Docker container.
 
-The intended workflow is to:
+It performs the following operations:
 
-1. Validate the supplied SQL dump and required dependencies.
-2. Create a disposable, isolated MySQL container.
-3. Wait until MySQL is ready to accept connections.
-4. Import the database dump.
-5. Check the restored database structure.
-6. Execute optional application-specific verification queries.
-7. Produce a clear verification report.
-8. Remove the temporary environment safely.
+1. Validates the supplied backup file and required dependencies.
+2. Starts a temporary MySQL container with no published ports and Docker networking disabled.
+3. Waits for an authenticated MySQL connection.
+4. Imports the SQL backup.
+5. Confirms that the restored database contains base tables.
+6. Optionally executes an application-specific SQL assertions file.
+7. Reports PASS or FAIL.
+8. Removes the container it created.
 
-The initial supported backup formats are planned to be:
+The verifier accepts a SQL backup path and an optional assertions file. It has been successfully tested with the included synthetic `.sql` fixture. Compressed-dump testing is still outstanding; do not treat `.sql.gz` support as validated until that test is completed.
 
-- `.sql`
-- `.sql.gz`
+### Quick Start
 
-Both Bash and PowerShell entry points are planned, with consistent verification behaviour and reporting.
+**Linux or Ubuntu WSL**, from the repository root:
+
+```bash
+bash mysql/verify-restore.sh fixtures/sample-schema.sql mysql/verification-queries.sql
+```
+
+**Windows PowerShell**, with Docker Desktop running and WSL integration enabled for Ubuntu:
+
+```powershell
+wsl -d Ubuntu -- bash mysql/verify-restore.sh fixtures/sample-schema.sql mysql/verification-queries.sql
+```
+
+The Windows command assumes the current PowerShell directory is the repository root and the WSL distribution is named `Ubuntu`. A separate PowerShell verification script is **not** included; Windows users run the tested Bash implementation through WSL.
+
+Expected successful output includes:
+
+```text
+[PASS] SQL import completed.
+[PASS] Restored base tables: 3
+[PASS] Custom verification assertions passed.
+
+RESTORE VERIFICATION: PASS
+MySQL image: mysql:8.0
+Restored base tables: 3
+Custom assertions: PASS
+[INFO] Removed disposable MySQL container.
+```
+
+The reported count of three tables belongs solely to the **fictional sample fixture**, not to any real SaaS database.
+
+### Verify Your Own Backup
+
+```bash
+bash mysql/verify-restore.sh /path/to/backup.sql /path/to/your-assertions.sql
+```
+
+The second argument is optional. Without custom assertions, verification is limited to import success and the verifier's built-in structural check. The supplied `mysql/verification-queries.sql` is written specifically for `fixtures/sample-schema.sql`; it must not be treated as a universal production verification suite.
+
+For complete prerequisites, Windows/WSL troubleshooting, security considerations and verification limits, read the **[MySQL Restore Verification Guide](docs/mysql-restore-verification.md)**.
 
 ### Verification Levels
 
-The tool will distinguish between three verification levels:
-
 | Verification | What it establishes |
-|---|---|
-| Import verification | The SQL dump can be imported without reported errors |
-| Structural verification | Expected schema objects exist in the restored database |
-| Data verification | Supplied assertions against restored records pass |
+| --- | --- |
+| Import verification | The SQL dump can be imported without reported errors. |
+| Structural verification | The restored database contains base tables; any more specific schema checks must be supplied as assertions. |
+| Data verification | Supplied application-specific SQL assertions pass, if provided. |
 
-A successful import does not automatically prove that every production record has been recovered.
+A successful import does not prove that every production record has been recovered. Full source-to-restore comparison requires trustworthy source baselines or additional application-specific checks.
 
-Full source-to-restore comparison requires appropriate source baselines or additional application-specific verification.
+### Tests Performed
+
+The Bash verifier has been exercised using Windows PowerShell, Ubuntu WSL and Docker Desktop:
+
+| Scenario | Observed result |
+| --- | --- |
+| Valid synthetic SQL dump with assertions | PASS; imported, checked and cleaned up. |
+| Missing backup file | Rejected during input validation. |
+| Deliberately failing SQL assertion | Reported FAIL and removed the temporary container. |
+
+Compressed SQL backup testing, intentionally malformed SQL testing and native Linux host testing remain outstanding. No automated CI test suite or machine-readable report is claimed at this stage.
 
 ## Security Principles
 
 The tooling is designed around the following principles:
 
-- **Isolation:** Test databases should not be exposed through published network ports.
-- **No production access required:** Recovery testing should operate on backup files, not production database connections.
-- **Credential protection:** Passwords and sensitive values should not be hardcoded into scripts or committed to version control.
-- **Controlled cleanup:** Scripts must remove only resources they created.
-- **Explicit verification:** Import errors and failed assertions must produce actionable failures.
-- **Minimal data exposure:** Verification reports should avoid including personal or confidential records.
-- **Independent storage:** Recovery archives should exist outside the infrastructure being decommissioned.
+- **Isolation:** The test database has no published network ports, and Docker networking is disabled.
+- **No production database connection:** Testing operates on a supplied backup file.
+- **Credential protection:** Production credentials and secrets must not be embedded in scripts or committed to version control.
+- **Controlled cleanup:** The verifier removes the temporary container it creates, rather than unrelated containers.
+- **Explicit verification:** Import errors and failed assertions produce failure results.
+- **Minimal data exposure:** Verification output should avoid personal or confidential records.
+- **Independent storage:** Recovery archives should remain accessible after the original infrastructure is gone.
 
-Operators remain responsible for protecting their backup files, encryption keys and application secrets.
+Docker isolation reduces exposure but does **not** make untrusted SQL dumps safe to execute. Use backups you are authorised to handle, on a host with appropriate controls. Operators remain responsible for protecting archives, encryption keys, credentials and restored data.
 
-The restore-verification tooling is not a substitute for an organisation's backup security, access-control or disaster-recovery policies.
+The verifier does not replace backup encryption, integrity checking, access-control review, retention management or an organisation's disaster-recovery policies.
 
 ## What This Project Does Not Promise
 
@@ -125,7 +161,7 @@ A successful MySQL restore test is not equivalent to a full application disaster
 
 Restoring a complete SaaS platform may also require:
 
-- Application source code and dependency installation
+- Application source code and dependencies
 - Application encryption keys and environment configuration
 - Uploaded documents and persistent storage
 - Web server and PHP runtime configuration
@@ -134,9 +170,7 @@ Restoring a complete SaaS platform may also require:
 - Third-party services and integrations
 - Application-level functionality and security testing
 
-This project provides recovery verification and decommissioning guidance.
-
-It does not certify that an entire application can be reconstructed solely because its database imports successfully.
+The verifier checks a **database restoration**, not full application availability, recovery time objectives or business continuity readiness.
 
 ## Background
 
@@ -152,48 +186,26 @@ This project grew out of a real-world Laravel SaaS infrastructure decommissionin
 - Docker-based MySQL recovery testing
 - Infrastructure and DNS decommissioning
 
-The database recovery workflow was tested independently of the original hosting environment.
+The original recovery exercise included creating and protecting application and database archives, transferring encrypted archives to independent storage, comparing cryptographic checksums, restoring a database backup into an isolated Docker environment, inspecting recovered structure and representative records, and documenting recovery requirements before decommissioning.
 
-The recovery exercise included:
-
-- Creating and protecting application and database archives
-- Transferring encrypted archives to independent storage
-- Comparing cryptographic checksums between source and destination
-- Restoring a MySQL backup into an isolated Docker environment
-- Inspecting the restored database structure
-- Running representative queries against recovered records
-- Removing the temporary test environment
-- Documenting restoration requirements before decommissioning
-
-A complete clean-room deployment of the application stack was not part of that exercise.
-
-The reusable tooling in this repository is being developed from the operational lessons of that work, using synthetic test data rather than production records.
+**A complete clean-room deployment of the application stack was not performed.** The public repository contains synthetic test data and reusable tooling, not production backups or sensitive configuration.
 
 ## Repository Status
 
-**Status: Initial development**
+**Status: Working initial Bash implementation; documentation and validation in progress.**
 
-The operational design is established, but the public verification scripts, automated tests and reporting interfaces are not yet available.
+Available now:
 
-The repository will be developed and tested incrementally before a stable release is published.
+- `mysql/verify-restore.sh` — Docker-based MySQL restore verifier
+- `mysql/verification-queries.sql` — SQL assertions for the synthetic fixture
+- `fixtures/sample-schema.sql` — fictional database for repeatable demonstrations
+- `docs/mysql-restore-verification.md` — usage, prerequisites and limitations
 
-Planned deliverables include:
+Further work may include broader fixture coverage, automated testing, additional operational templates, structured reporting and an anonymised case study. These are **future possibilities**, not implemented functionality.
 
-- Docker-based MySQL restore verification
-- Bash and PowerShell entry points
-- Synthetic SQL fixtures
-- Machine-readable verification reports
-- Infrastructure inventory and recovery templates
-- Security and decommissioning guidance
-- An anonymised operational case study
-
-Documentation, examples and tooling will be updated as the implementation progresses.
-
-Until the verifier has been implemented and tested, this repository should not be relied upon as an automated recovery-verification solution.
+Until the remaining validation and security review are complete, treat the tool as an early-stage operational aid rather than a certified recovery solution.
 
 ## Intended Audience
-
-This project is intended for:
 
 - Laravel and PHP developers
 - SaaS application owners
@@ -202,35 +214,21 @@ This project is intended for:
 - Database administrators
 - Technical teams retiring or migrating hosted applications
 
-The concepts are applicable beyond Laravel, although the originating case study involves a Laravel SaaS environment.
+The concepts apply beyond Laravel, although the originating case study involved a Laravel SaaS environment.
 
 ## Project Philosophy
 
-The objective is not to build a large framework for infrastructure management.
-
-It is to provide focused, understandable tools that help operators answer a specific question:
+The objective is not to build a large framework for infrastructure management. It is to provide focused, understandable tools that help operators answer one question:
 
 **Can the data and application assets we intend to preserve actually support recovery after the original infrastructure is removed?**
 
-The project prioritises:
-
-- Reproducible verification
-- Clear failure reporting
-- Safe defaults
-- Minimal external dependencies
-- Cross-platform usability where practical
-- Evidence-based decommissioning decisions
-- Honest documentation of verification limitations
-
-A verification result should explain what was tested, what passed, what failed and what remains unverified.
+The project prioritises reproducible verification, clear failure reporting, safe defaults, minimal external dependencies, practical cross-platform use, evidence-based decisions and honest documentation of limitations.
 
 ## Guiding Principle
 
 > Don't test whether you can create a backup. Test whether you can restore from it.
 
-The objective is not simply to produce an archive.
-
-It is to establish sufficient, documented evidence that important application data can be recovered before the infrastructure holding the original copy is permanently removed.
+The objective is not simply to produce an archive. It is to establish documented evidence that important application data can be recovered before the infrastructure holding the original copy is permanently removed.
 
 ## License
 
