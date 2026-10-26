@@ -23,8 +23,9 @@
 *.7z
 *.enc
 
-# Allow explicitly reviewed synthetic test fixtures
+# Allow explicitly reviewed SQL fixtures and verification queries
 !fixtures/*.sql
+!mysql/verification-queries.sql
 
 # Local test outputs and generated reports
 reports/

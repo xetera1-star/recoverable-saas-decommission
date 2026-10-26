@@ -1,0 +1,9 @@
+# Preserve Unix line endings for Bash scripts
+*.sh text eol=lf
+
+# Normalise text files across operating systems
+*.sql text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
