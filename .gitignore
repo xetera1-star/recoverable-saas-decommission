@@ -1,0 +1,57 @@
+# Environment configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.kdbx
+
+# Database dumps and backups
+*.sql
+*.sql.gz
+*.sql.zip
+*.dump
+*.bak
+*.backup
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.7z
+*.enc
+
+# Allow explicitly reviewed synthetic test fixtures
+!fixtures/*.sql
+
+# Local test outputs and generated reports
+reports/
+output/
+tmp/
+temp/
+*.log
+*.pid
+
+# Docker and database persistence
+mysql-data/
+docker-data/
+*.sock
+
+# Dependencies and caches
+vendor/
+node_modules/
+__pycache__/
+.pytest_cache/
+
+# Operating system and editor files
+.DS_Store
+Thumbs.db
+.vs/
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# PowerShell temporary files
+*.ps1.bak
